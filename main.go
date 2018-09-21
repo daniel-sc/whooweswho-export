@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const index_splits = 4 // first column index for splits
+const indexSplits = 4 // first column index for splits
 var idToNameMap = map[int]string{}
 var idList []int
 var myClient = &http.Client{Timeout: 10 * time.Second}
@@ -39,9 +39,12 @@ var startURL = flag.String("url", "", `url of sheet, e.g. "https://www.whooweswh
 var nameMapParam = flag.String("names", "", `names to replace IDs, e.g. "123456->Arnold,987654->Schwarz"`)
 var verbose = flag.Bool("v", false, "verbose output")
 var skipHeader = flag.Bool("skip-header", false, "skip header line in csv")
+var additionalHeaders = flag.String("headers", "", `additional request headers, e.g. "Cookie:session_cookie123,X-My-Header:42"`)
 
 func main() {
 	flag.Parse()
+
+	// TODO fetch default split from https://www.whooweswho.net/api/Book/123456/Sheet/789789
 
 	idToNameRegexp := regexp.MustCompile(`(\d+)->([^,]+),?`)
 	idToNameMatches := idToNameRegexp.FindAllStringSubmatch(*nameMapParam, -1)
@@ -63,7 +66,7 @@ func main() {
 	sheet := bookAndSheetMatches[2]
 	url := fmt.Sprintf("https://www.whooweswho.net/api/Book/%s/Sheet/%s/Row?order=-ctime", book, sheet)
 	if *verbose {
-		log.Println("query book=" + book + " and sheet=" + sheet)
+		log.Println("query book=" + book + " and sheet=" + sheet + " via url: " + url)
 	}
 
 	items := make([]Item, 0)
@@ -105,13 +108,13 @@ func main() {
 	w := csv.NewWriter(fileWriter)
 
 	if !*skipHeader {
-		firstLine := make([]string, index_splits+len(idToNameMap))
+		firstLine := make([]string, indexSplits+len(idToNameMap))
 		firstLine[0] = "Time"
-		firstLine[1] = "Payer"
-		firstLine[2] = "Amount"
-		firstLine[3] = "Description"
+		firstLine[1] = "Amount"
+		firstLine[2] = "Description"
+		firstLine[3] = "Payer"
 		for i, id := range idList {
-			firstLine[index_splits+i] = "Split " + toName(id)
+			firstLine[indexSplits+i] = "Split " + toName(id)
 		}
 		w.Write(firstLine)
 	}
@@ -126,7 +129,19 @@ func main() {
 }
 
 func getJSON(url string, target interface{}) error {
-	r, err := myClient.Get(url)
+
+	req, err := http.NewRequest("GET", url, nil)
+	checkErr(err)
+
+	for _, h := range strings.Split(*additionalHeaders, ",") {
+		nameAndValue := strings.Split(h, ":")
+		req.Header.Add(nameAndValue[0], nameAndValue[1])
+		if *verbose {
+			log.Printf("Added requet header %s=%s", nameAndValue[0], nameAndValue[1])
+		}
+	}
+
+	r, err := myClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -150,7 +165,7 @@ func toName(id int) string {
 }
 
 func (item Item) toCsv() []string {
-	result := make([]string, index_splits+len(idList))
+	result := make([]string, indexSplits+len(idList))
 
 	result[0] = fmt.Sprintf("%s", item.Time)
 	result[1] = fmt.Sprintf("%.2f", item.Amount)
@@ -165,9 +180,9 @@ func (item Item) toCsv() []string {
 					splitValue = fmt.Sprintf("%.2f", split.Value)
 				}
 			}
-			result[i+index_splits] = splitValue
+			result[i+indexSplits] = splitValue
 		} else {
-			result[i+index_splits] = ""
+			result[i+indexSplits] = ""
 		}
 	}
 
